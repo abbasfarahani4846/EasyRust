@@ -1,1 +1,9 @@
 /target/
+/dist/
+
+# Build output, signing key and anything with real server details: never commit
+/android/build/
+/android/keystore/
+/tools/logs/
+/tools/run*.log
+/docs/design/

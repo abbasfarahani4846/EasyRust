@@ -35,7 +35,16 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" "build-tools;36.1.0" "platforms;android-35"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
-      # Signing key and bundled cores are committed, so no secrets are needed.
+      - name: Restore signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PROPS: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
+        run: |
+          test -n "$KS_B64" && test -n "$KS_PROPS" || { echo "Missing ANDROID_KEYSTORE_* secrets"; exit 1; }
+          mkdir -p android/keystore
+          echo "$KS_B64" | base64 -d > android/keystore/easyvpn-release.jks
+          printf '%s
+' "$KS_PROPS" > android/keystore/keystore.properties
       - run: python3 tools/build_apk.py --abi arm64-v8a --release-name dist/EasyVpn-arm64.apk
       - run: python3 tools/build_apk.py --abi x86_64 --release-name dist/EasyVpn-x86_64.apk
       - uses: actions/upload-artifact@v4
