@@ -8,8 +8,8 @@ use std::{
     time::Duration,
 };
 
-/// Public repository that only holds release binaries (the source repo is private).
-const REPO: &str = "abbasfarahani4846/EasyRust-releases";
+/// Releases must be readable without a token, so this repository has to be public.
+const REPO: &str = "abbasfarahani4846/EasyRust";
 const USER_AGENT: &str = concat!("EasyVpn/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, PartialEq, Eq)]

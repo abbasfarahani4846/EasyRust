@@ -86,9 +86,8 @@ jobs:
           merge-multiple: true
       - name: Publish release
         env:
-          # Fine-grained PAT with Contents: write on the public releases repo (the source repo is private).
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          GH_REPO: abbasfarahani4846/EasyRust-releases
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" files/* --clobber
