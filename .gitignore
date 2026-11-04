@@ -1,14 +1,1 @@
 /target/
-/dist/
-
-# Android build output and downloaded core binaries (373 MB, see SPEC.md v9 for the sources)
-/android/build/
-/android/cores/
-
-# Signing key and its password: never commit, back up separately
-/android/keystore/
-
-# Raw model output and screenshots contain real server details and subscription links
-/tools/logs/
-/tools/run*.log
-/docs/design/
