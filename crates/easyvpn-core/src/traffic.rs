@@ -97,27 +97,50 @@ fn request_agent(proxy: Option<&str>, timeout: Duration) -> Result<ureq::Agent> 
     Ok(builder.build())
 }
 
+/// Well-known endpoints tried in order, with the status each one answers when reachable.
+const PROBE_SITES: [(&str, u16); 5] = [
+    ("https://www.gstatic.com/generate_204", 204),
+    ("https://cp.cloudflare.com/generate_204", 204),
+    ("https://www.google.com/generate_204", 204),
+    ("https://www.apple.com/library/test/success.html", 200),
+    ("https://www.msftconnecttest.com/connecttest.txt", 200),
+];
+
 /// Real connectivity test using a new connection on every call.
 ///
 /// `None` tests the OS route, which is required to verify a full-device tunnel.
-/// The timeout is ureq's overall request deadline, not a per-read timeout.
+/// The timeout is ureq's overall deadline for each site; the sites are tried in
+/// order and the first one that answers correctly proves connectivity. Hung
+/// sites stop the walk after three timeouts so a dead link fails in bounded time.
 pub fn probe(via: Option<&str>, timeout: Duration) -> Result<Duration> {
     let agent = request_agent(via, timeout)?;
     let started = Instant::now();
-    let response = agent
-        .get("https://www.gstatic.com/generate_204")
-        .set("Cache-Control", "no-cache")
-        .set("Connection", "close")
-        .call()
-        .context("connectivity test failed")?;
-    validate_probe_status(response.status())?;
-    Ok(started.elapsed())
+    let mut last_error = None;
+    for (url, expected) in PROBE_SITES {
+        if last_error.is_some() && started.elapsed() >= timeout * 3 {
+            break;
+        }
+        let result = agent
+            .get(url)
+            .set("Cache-Control", "no-cache")
+            .set("Connection", "close")
+            .call()
+            .map_err(anyhow::Error::from)
+            .and_then(|response| validate_probe_status(response.status(), expected));
+        match result {
+            Ok(()) => return Ok(started.elapsed()),
+            Err(error) => last_error = Some(error.context(url)),
+        }
+    }
+    Err(last_error
+        .expect("PROBE_SITES is not empty")
+        .context(format!("connectivity test failed on all {} sites", PROBE_SITES.len())))
 }
 
-fn validate_probe_status(status: u16) -> Result<()> {
+fn validate_probe_status(status: u16, expected: u16) -> Result<()> {
     anyhow::ensure!(
-        status == 204,
-        "connectivity test expected HTTP 204, received HTTP {status}"
+        status == expected,
+        "connectivity test expected HTTP {expected}, received HTTP {status}"
     );
     Ok(())
 }
@@ -181,9 +204,10 @@ mod tests {
 
     #[test]
     fn only_204_proves_connectivity() {
-        assert!(validate_probe_status(204).is_ok());
+        assert!(validate_probe_status(204, 204).is_ok());
+        assert!(validate_probe_status(200, 200).is_ok());
         for status in [200, 201, 301, 302, 307, 400, 403, 500, 503] {
-            assert!(validate_probe_status(status).is_err());
+            assert!(validate_probe_status(status, 204).is_err());
         }
     }
 

@@ -186,7 +186,9 @@ fn probe_worker(generation: u64, route: ProbeRoute, cancel: Arc<AtomicBool>, sen
         let mut last_error = "Connectivity test failed".to_owned();
         let mut proxy_only_error = None;
         let mut verified = false;
-        for (index, seconds) in [2, 3, 4, 5].into_iter().enumerate() {
+        for (index, seconds) in [3, 3, 4, 5].into_iter().enumerate() {
+            // A refused connection fails instantly; give a slow-starting core time to open its port.
+            if index > 0 && wait_cancelled(&cancel, Duration::from_millis(1500)) { return; }
             if cancel.load(Ordering::Acquire) { return; }
             if sender.send(Event::Verifying(generation, index + 1)).is_err() { return; }
             ctx.request_repaint();
@@ -323,6 +325,8 @@ impl App {
             generation: 0, telemetry_stop: None, context: cc.egui_ctx.clone(),
         };
         platform::install_clipboard(&cc.egui_ctx, app.platform.clone());
+        let wake_ctx = cc.egui_ctx.clone();
+        app.platform.set_wake(Arc::new(move || wake_ctx.request_repaint()));
         app.sync_core();
         if mobile && first_run { app.save(); }
         app.ensure_bypass_country(&cc.egui_ctx);
@@ -924,15 +928,21 @@ impl App {
             if theme::expand_control(ui).on_hover_text("Mini mode").clicked() { self.window.toggle(ctx); }
         });
     }
+    fn go_back(&mut self) {
+        self.page = match self.page { Page::Rules | Page::Sources => Page::Settings, _ => Page::Home };
+    }
+    /// Hardware Back: step out of a sub-page, or hide the app (VPN keeps running) from Home.
+    fn handle_back(&mut self) {
+        if !self.platform.take_back_press() { return; }
+        if self.page == Page::Home { self.platform.move_to_background(); } else { self.go_back(); }
+    }
     fn navigation(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         if self.page != Page::Home {
             let right = match self.page {
                 Page::Servers => Some(theme::Icon::Lightning), Page::Subscriptions => Some(theme::Icon::Refresh), _ => None,
             };
             let (back, action) = theme::top_bar(ui, self.page.title(), right);
-            if back.clicked() {
-                self.page = match self.page { Page::Rules | Page::Sources => Page::Settings, _ => Page::Home };
-            }
+            if back.clicked() { self.go_back(); }
             if let Some(action) = action {
                 let busy = match self.page { Page::Servers => self.pinging, Page::Subscriptions => self.updating_subscriptions, _ => false };
                 if busy {
@@ -1017,7 +1027,7 @@ impl eframe::App for App {
         let mobile = self.platform.is_mobile();
         platform::install_clipboard(ctx, self.platform.clone());
         if !mobile { self.window.begin_frame(ctx); }
-        self.receive_events(ctx); self.poll_qr_scan(ctx); self.poll_platform_vpn(ctx); self.ensure_bypass_country(ctx);
+        self.receive_events(ctx); self.handle_back(); self.poll_qr_scan(ctx); self.poll_platform_vpn(ctx); self.ensure_bypass_country(ctx);
         let paths: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
         if !paths.is_empty() { self.import_files(Some(paths), ctx); }
         let mut exited = false;

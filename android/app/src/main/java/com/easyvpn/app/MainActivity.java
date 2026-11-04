@@ -217,6 +217,25 @@ public final class MainActivity extends NativeActivity {
         });
     }
 
+    public static void moveToBackground() {
+        final MainActivity activity = instance;
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                activity.moveTaskToBack(true);
+            }
+        });
+    }
+
+    // winit lets Back through as unhandled; Rust owns navigation and calls moveTaskToBack at the root.
+    @Override
+    public void onBackPressed() {
+        Native.onBack();
+    }
+
     @Override
     protected void onDestroy() {
         if (instance == this) {

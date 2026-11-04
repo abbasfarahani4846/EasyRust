@@ -40,6 +40,14 @@ pub trait Platform: Send + Sync {
     fn take_qr_result(&self) -> Option<Result<String, String>> {
         None
     }
+    /// Lets the platform wake the UI thread (e.g. `ctx.request_repaint()`) from its own callbacks.
+    fn set_wake(&self, _wake: std::sync::Arc<dyn Fn() + Send + Sync>) {}
+    /// True once per hardware Back press.
+    fn take_back_press(&self) -> bool {
+        false
+    }
+    /// Hide the app without stopping it (Back at the root screen).
+    fn move_to_background(&self) {}
 }
 
 #[derive(Default)]

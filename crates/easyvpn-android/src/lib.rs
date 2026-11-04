@@ -15,7 +15,10 @@ mod android {
         net::{IpAddr, Ipv4Addr},
         panic::{catch_unwind, AssertUnwindSafe},
         path::{Path, PathBuf},
-        sync::{Mutex, MutexGuard, OnceLock},
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc, Mutex, MutexGuard, OnceLock,
+        },
         thread::JoinHandle,
     };
     use tun2proxy::{ArgDns, Args, CancellationToken, ProxyParameters};
@@ -24,6 +27,13 @@ mod android {
     static VPN_STATUS: OnceLock<Mutex<VpnStatus>> = OnceLock::new();
     static TUN: OnceLock<Mutex<Option<TunWorker>>> = OnceLock::new();
     static QR_RESULT: OnceLock<Mutex<Option<std::result::Result<String, String>>>> = OnceLock::new();
+    static BACK_PRESSED: AtomicBool = AtomicBool::new(false);
+    type Wake = Arc<dyn Fn() + Send + Sync>;
+    static WAKE: OnceLock<Mutex<Option<Wake>>> = OnceLock::new();
+
+    fn wake() -> &'static Mutex<Option<Wake>> {
+        WAKE.get_or_init(|| Mutex::new(None))
+    }
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -270,6 +280,24 @@ mod android {
 
         fn take_qr_result(&self) -> Option<std::result::Result<String, String>> {
             lock(qr_result()).take()
+        }
+
+        fn set_wake(&self, callback: Arc<dyn Fn() + Send + Sync>) {
+            *lock(wake()) = Some(callback);
+        }
+
+        fn take_back_press(&self) -> bool {
+            BACK_PRESSED.swap(false, Ordering::AcqRel)
+        }
+
+        fn move_to_background(&self) {
+            if let Err(error) = self.with_env(|env, activity| {
+                let class = env.get_object_class(activity)?;
+                env.call_static_method(&class, jni_str!("moveToBackground"), jni_sig!("()V"), &[])?;
+                Ok(())
+            }) {
+                log::warn!("Moving the app to the background failed: {error:#}");
+            }
         }
     }
 
@@ -531,6 +559,21 @@ mod android {
                 }
             }).resolve::<jni::errors::LogErrorAndDefault>()
         })).unwrap_or(std::ptr::null_mut())
+    }
+
+    /// # Safety
+    /// Java supplies a valid JNI environment and class.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn Java_com_easyvpn_app_Native_onBack(
+        _env: EnvUnowned<'_>,
+        _class: JClass<'_>,
+    ) {
+        BACK_PRESSED.store(true, Ordering::Release);
+        // Clone out of the lock so the callback never runs while it is held.
+        let callback = lock(wake()).clone();
+        if let Some(callback) = callback {
+            let _ = catch_unwind(AssertUnwindSafe(|| callback()));
+        }
     }
 
     /// # Safety
