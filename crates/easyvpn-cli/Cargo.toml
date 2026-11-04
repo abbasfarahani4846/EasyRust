@@ -1,0 +1,14 @@
+[package]
+name = "easyvpn-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "easyvpn"
+path = "src/main.rs"
+
+[dependencies]
+easyvpn-core.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3"

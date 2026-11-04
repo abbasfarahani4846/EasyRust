@@ -1,0 +1,28 @@
+[package]
+name = "easyvpn-gui"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "easyvpn_gui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "easyvpn-gui"
+path = "src/main.rs"
+
+[dependencies]
+easyvpn-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url = "2"
+eframe = "0.29"
+unicode-normalization = "0.1"
+ar-reshaper = "1.5"
+unicode-bidi = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = "3"
+rfd = "0.15"

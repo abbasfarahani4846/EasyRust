@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">EasyVpn</string>
+    <string name="vpn_channel_name">VPN connection</string>
+    <string name="vpn_notification_text">VPN is active</string>
+    <string name="disconnect">Disconnect</string>
+</resources>

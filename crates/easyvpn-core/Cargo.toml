@@ -1,0 +1,22 @@
+[package]
+name = "easyvpn-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64 = "0.22"
+url = "2"
+percent-encoding = "2"
+dirs = "5"
+rand = "0.8"
+ureq = { version = "2", features = ["json"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+tar = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

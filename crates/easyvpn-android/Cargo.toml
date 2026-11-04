@@ -1,0 +1,28 @@
+[package]
+name = "easyvpn-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "easyvpn"
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+easyvpn-gui = { path = "../easyvpn-gui" }
+easyvpn-core.workspace = true
+eframe = { version = "0.29", features = ["android-native-activity"] }
+winit = { version = "0.30", features = ["android-native-activity"] }
+jni = "=0.22.4"
+tun2proxy = { version = "=0.8.7", default-features = false, features = ["udpgw"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+android_logger = "0.15"
+log = "0.4"
+anyhow.workspace = true
+rqrr = "0.7"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rqrr = "0.7"
+
+[dev-dependencies]
+qrcode = { version = "0.14", default-features = false }
