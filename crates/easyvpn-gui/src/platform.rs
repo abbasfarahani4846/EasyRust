@@ -46,6 +46,10 @@ pub trait Platform: Send + Sync {
     fn take_back_press(&self) -> bool {
         false
     }
+    /// Install a downloaded update; on success the app is replaced or restarted.
+    fn install_update(&self, _path: &Path) -> anyhow::Result<()> {
+        anyhow::bail!("Updating is not supported on this platform")
+    }
     /// Hide the app without stopping it (Back at the root screen).
     fn move_to_background(&self) {}
 }
@@ -56,6 +60,14 @@ pub struct DesktopPlatform;
 impl Platform for DesktopPlatform {
     fn is_mobile(&self) -> bool {
         false
+    }
+
+    fn install_update(&self, path: &Path) -> anyhow::Result<()> {
+        if cfg!(windows) {
+            easyvpn_core::update::replace_self_and_restart(path)
+        } else {
+            anyhow::bail!("Updating is only supported on Windows and Android")
+        }
     }
 
     fn clipboard_get(&self) -> Option<String> {

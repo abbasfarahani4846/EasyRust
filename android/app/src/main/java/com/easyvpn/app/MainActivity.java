@@ -3,24 +3,51 @@ package com.easyvpn.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.NativeActivity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 
 public final class MainActivity extends NativeActivity {
     private static final String TAG = "EasyVpn";
     private static final int VPN_PERMISSION_REQUEST = 1;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 2;
     private static volatile MainActivity instance;
+
+    private static final String ACTION_INSTALL_RESULT = "com.easyvpn.app.INSTALL_RESULT";
+
+    private final BroadcastReceiver installResult = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
+            if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                if (confirm != null) {
+                    confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(confirm);
+                }
+            } else if (status != PackageInstaller.STATUS_SUCCESS) {
+                Toast.makeText(MainActivity.this, "Update failed: "
+                        + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE),
+                        Toast.LENGTH_LONG).show();
+            }
+        }
+    };
 
     private boolean awaitingVpnPermission;
     private int pendingPort;
@@ -39,6 +66,13 @@ public final class MainActivity extends NativeActivity {
 
         instance = this;
         super.onCreate(savedInstanceState);
+
+        IntentFilter filter = new IntentFilter(ACTION_INSTALL_RESULT);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(installResult, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(installResult, filter);
+        }
 
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -217,6 +251,47 @@ public final class MainActivity extends NativeActivity {
         });
     }
 
+    /** Hands the downloaded APK to the system installer; the user confirms in the system dialog. */
+    public static void installApk(final String path) {
+        final MainActivity activity = instance;
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    activity.commitInstall(path);
+                } catch (IOException | RuntimeException error) {
+                    Log.e(TAG, "Cannot install update", error);
+                    Toast.makeText(activity, "Update failed: " + error, Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+    }
+
+    private void commitInstall(String path) throws IOException {
+        PackageInstaller installer = getPackageManager().getPackageInstaller();
+        int id = installer.createSession(
+                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL));
+        try (PackageInstaller.Session session = installer.openSession(id)) {
+            try (InputStream input = new FileInputStream(path);
+                 OutputStream output = session.openWrite("easyvpn", 0, -1)) {
+                byte[] buffer = new byte[65536];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, count);
+                }
+                session.fsync(output);
+            }
+            // Mutable so the system can attach the status extras.
+            PendingIntent result = PendingIntent.getBroadcast(this, id,
+                    new Intent(ACTION_INSTALL_RESULT).setPackage(getPackageName()),
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+            session.commit(result.getIntentSender());
+        }
+    }
+
     public static void moveToBackground() {
         final MainActivity activity = instance;
         if (activity == null) {
@@ -241,6 +316,7 @@ public final class MainActivity extends NativeActivity {
         if (instance == this) {
             instance = null;
         }
+        unregisterReceiver(installResult);
         super.onDestroy();
     }
 }

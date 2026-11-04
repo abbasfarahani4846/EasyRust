@@ -13,6 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          IFS=. read -r MA MI PA <<<"$V"
+          sed -i "0,/^version = \".*\"/s//version = \"$V\"/" Cargo.toml
+          sed -i "s/android:versionName=\"[^\"]*\"/android:versionName=\"$V\"/; s/android:versionCode=\"[^\"]*\"/android:versionCode=\"$((MA*10000+MI*100+PA))\"/" android/app/src/main/AndroidManifest.xml
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,6 +47,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          IFS=. read -r MA MI PA <<<"$V"
+          sed -i "0,/^version = \".*\"/s//version = \"$V\"/" Cargo.toml
+          sed -i "s/android:versionName=\"[^\"]*\"/android:versionName=\"$V\"/; s/android:versionCode=\"[^\"]*\"/android:versionCode=\"$((MA*10000+MI*100+PA))\"/" android/app/src/main/AndroidManifest.xml
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p easyvpn-gui -p easyvpn-cli
@@ -61,11 +77,12 @@ jobs:
           merge-multiple: true
       - name: Publish release
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          # Fine-grained PAT with Contents: write on the public releases repo (the source repo is private).
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_REPO: abbasfarahani4846/EasyRust-releases
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" files/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" files/* --generate-notes
+            gh release create "$GITHUB_REF_NAME" files/* --title "$GITHUB_REF_NAME" --notes "EasyVpn $GITHUB_REF_NAME"
           fi

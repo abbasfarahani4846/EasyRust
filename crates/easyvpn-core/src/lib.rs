@@ -10,5 +10,6 @@ pub mod store;
 pub mod subscription;
 pub mod sysproxy;
 pub mod traffic;
+pub mod update;
 
 pub use profile::*;

@@ -14,8 +14,8 @@ use easyvpn_core::{
     core::{self, Connection},
     download, import, link, ping,
     rules::{self, BypassSource},
-    store::Store,
-    subscription, sysproxy, traffic, CoreKind, DefaultRoute, Profile, Protocol, ProxyMode,
+    store::{self, Store},
+    subscription, sysproxy, traffic, update, CoreKind, DefaultRoute, Profile, Protocol, ProxyMode,
     RoutingMode, Rule, RuleAction, RuleKind, Settings,
 };
 use eframe::egui;
@@ -78,6 +78,9 @@ enum Event {
     SourceProgress(String),
     SourceUpdated(BypassSource, std::result::Result<BypassSource, String>),
     CleanupError(String),
+    UpdateChecked(std::result::Result<Option<update::Update>, String>),
+    UpdateProgress(String),
+    UpdateDownloaded(std::result::Result<PathBuf, String>),
 }
 struct Toast {
     message: String, since: Instant, color: egui::Color32, restart_as_admin: bool, see_logs: bool,
@@ -251,6 +254,9 @@ pub struct App {
     queued_subscription_ids: Vec<String>,
     smart_subscription_ids: Vec<String>,
     qr_pending: bool,
+    pub update: Option<update::Update>,
+    pub update_busy: bool,
+    pub update_status: String,
     pub pinging: bool,
     pub pings: HashMap<String, Option<u128>>,
     pub logs: Vec<String>,
@@ -310,6 +316,7 @@ impl App {
             installing: false, installing_core: None, install_progress: String::new(),
             importing_files: false, updating_subscriptions: false, updating_ids: Vec::new(),
             queued_subscription_ids: Vec::new(), smart_subscription_ids: Vec::new(), qr_pending: false,
+            update: None, update_busy: false, update_status: String::new(),
             pinging: false, pings: HashMap::new(), logs: Vec::new(), last_core_logs: Vec::new(),
             status, toast: None, page: Page::Home, editor: None,
             rule_draft: Rule::default(), source_draft: BypassSource::default(),
@@ -325,6 +332,7 @@ impl App {
             generation: 0, telemetry_stop: None, context: cc.egui_ctx.clone(),
         };
         platform::install_clipboard(&cc.egui_ctx, app.platform.clone());
+        update::cleanup();
         let wake_ctx = cc.egui_ctx.clone();
         app.platform.set_wake(Arc::new(move || wake_ctx.request_repaint()));
         app.sync_core();
@@ -518,6 +526,34 @@ impl App {
             let results = ping::ping_all(&profiles, Duration::from_secs(3));
             let _ = sender.send(Event::Pings(results, skipped));
             ctx.request_repaint();
+        });
+    }
+    /// While connected, our own traffic is outside the tunnel on Android, so go through the local proxy.
+    fn tunnel_proxy(&self) -> Option<String> {
+        if !matches!(self.conn_state, ConnState::Connected { .. }) { return None; }
+        let (kind, profile, settings) = self.active_config.as_ref()?;
+        active_probe_route(self.platform.is_mobile(), *kind, profile, settings).proxy
+    }
+    pub fn check_update(&mut self, ctx: &egui::Context) {
+        if self.update_busy { return; }
+        self.update_busy = true; self.update = None; self.update_status = "Checking for updates…".into();
+        let (proxy, sender, ctx) = (self.tunnel_proxy(), self.sender.clone(), ctx.clone());
+        thread::spawn(move || {
+            let result = update::check(proxy.as_deref()).map_err(|e| format!("{e:#}"));
+            let _ = sender.send(Event::UpdateChecked(result)); ctx.request_repaint();
+        });
+    }
+    pub fn download_update(&mut self, ctx: &egui::Context) {
+        let Some(found) = self.update.clone() else { return; };
+        if self.update_busy { return; }
+        self.update_busy = true; self.update_status = "Downloading update…".into();
+        let (proxy, sender, ctx) = (self.tunnel_proxy(), self.sender.clone(), ctx.clone());
+        thread::spawn(move || {
+            let dest = update::staging_path(&store::data_dir());
+            let result = update::download(&found.url, &dest, proxy.as_deref(), &mut |message| {
+                let _ = sender.send(Event::UpdateProgress(message)); ctx.request_repaint();
+            }).map(|()| dest).map_err(|e| format!("{e:#}"));
+            let _ = sender.send(Event::UpdateDownloaded(result)); ctx.request_repaint();
         });
     }
     pub fn install_core(&mut self, kind: CoreKind, ctx: &egui::Context) {
@@ -752,6 +788,22 @@ impl App {
                 Event::Installed(result) => {
                     self.installing = false; self.installing_core = None; self.install_progress.clear();
                     self.status = result.unwrap_or_else(|e| format!("Install failed: {e}"));
+                }
+                Event::UpdateProgress(message) => self.update_status = message,
+                Event::UpdateChecked(result) => {
+                    self.update_busy = false;
+                    self.update_status = match result {
+                        Ok(Some(found)) => { let text = format!("Version {} is available", found.version); self.update = Some(found); text }
+                        Ok(None) => "You are on the latest version".into(),
+                        Err(error) => format!("Update check failed: {error}"),
+                    };
+                }
+                Event::UpdateDownloaded(result) => {
+                    self.update_busy = false;
+                    self.update_status = match result.and_then(|path| self.platform.install_update(&path).map_err(|e| format!("{e:#}"))) {
+                        Ok(()) => "Installing update… confirm in the system dialog".into(),
+                        Err(error) => format!("Update failed: {error}"),
+                    };
                 }
                 Event::Imported(profiles, errors) => { self.importing_files = false; self.add_imported(profiles, errors); }
                 Event::Pings(results, skipped) => {

@@ -60,6 +60,22 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             );
         });
         ui.add_space(20.0_f32);
+        theme::section(ui, "UPDATE");
+        theme::card_frame().show(ui, |ui| {
+            ui.set_min_width((ui.available_width() - 1.0_f32).max(0.0_f32));
+            if !app.update_status.is_empty() {
+                ui.label(RichText::new(app.update_status.as_str()).size(12.0_f32).color(theme::MUTED));
+                ui.add_space(6.0_f32);
+            }
+            ui.add_enabled_ui(!app.update_busy, |ui| {
+                if app.update.is_some() {
+                    if theme::primary(ui, "Download and install").clicked() { app.download_update(ui.ctx()); }
+                } else if theme::secondary(ui, "Check for updates", false).clicked() {
+                    app.check_update(ui.ctx());
+                }
+            });
+        });
+        ui.add_space(20.0_f32);
         theme::section(ui, "APPLICATION");
         theme::card_frame().show(ui, |ui| {
             ui.set_min_width((ui.available_width() - 1.0_f32).max(0.0_f32));

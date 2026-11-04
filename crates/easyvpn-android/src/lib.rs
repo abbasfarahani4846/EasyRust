@@ -282,6 +282,20 @@ mod android {
             lock(qr_result()).take()
         }
 
+        fn install_update(&self, path: &Path) -> Result<()> {
+            self.with_env(|env, activity| {
+                let class = env.get_object_class(activity)?;
+                let path = env.new_string(path.to_string_lossy())?;
+                env.call_static_method(
+                    &class,
+                    jni_str!("installApk"),
+                    jni_sig!("(Ljava/lang/String;)V"),
+                    &[JValue::Object(&path)],
+                )?;
+                Ok(())
+            })
+        }
+
         fn set_wake(&self, callback: Arc<dyn Fn() + Send + Sync>) {
             *lock(wake()) = Some(callback);
         }
